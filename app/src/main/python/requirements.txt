@@ -1,0 +1,6 @@
+vendor/protobuf3-to-dict
+TikTokLive==6.6.5
+yt-dlp
+fastapi
+uvicorn[standard]
+httpx

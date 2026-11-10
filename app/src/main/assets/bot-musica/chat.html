@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chat da live</title>
+<style>
+html,body{height:100%;margin:0}
+html{font-size:16px}
+body{background:#0b0c0f;color:#eee;font:1rem/1.35 system-ui,sans-serif;display:flex;flex-direction:column}
+body.ovl{background:transparent;text-shadow:0 1px 3px #000,0 0 2px #000}
+#bar{display:flex;gap:6px;padding:6px;align-items:center;flex-wrap:wrap;background:#14161b}
+#bar.hide{display:none}
+#bar button{background:#2a2e38;color:#eee;border:0;border-radius:14px;padding:5px 10px;font-size:.85rem}
+#bar button.on{background:#fe2c55}
+#bar .sp{flex:1}
+#feed{flex:1;overflow-y:auto;padding:4px 8px;overscroll-behavior:contain}
+.m{padding:2px 0;word-break:break-word}
+.m b{color:#7fd1ff;font-weight:600}
+.g{background:#3a1d4a;border-left:4px solid #ff4fa3;padding:6px 8px;margin:5px 0;border-radius:6px;font-size:1.1em;word-break:break-word}
+.g b{color:#ffd24f}
+body.ovl .g{background:rgba(58,29,74,.75)}
+.e{font-size:.8em;color:#8b93a1;padding:1px 0}
+#aviso{padding:6px 8px;color:#ff9f9f;font-size:.85rem}
+#novos{position:fixed;bottom:10px;right:10px;background:#fe2c55;color:#fff;border:0;border-radius:16px;padding:6px 12px;font-size:.85rem;display:none}
+
+/* ---- overlay (OBS/Prism): vidro escuro, entrada suave ---- */
+body.ovl{--c1:#fe2c55;--c2:#25f4ee;font-family:"Sora","Segoe UI Variable Display","Segoe UI",system-ui,sans-serif;text-shadow:none;overflow:hidden}
+body.ovl #feed{overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end;padding:12px 16px;gap:6px;
+  -webkit-mask-image:linear-gradient(transparent,#000 22%);mask-image:linear-gradient(transparent,#000 22%)}
+body.ovl .m,body.ovl .e{align-self:flex-start;max-width:100%;padding:7px 14px;border-radius:16px;background:rgba(14,15,20,.62);border:1px solid rgba(255,255,255,.08);box-shadow:0 8px 20px -10px #000;animation:ent calc(.45s/var(--v,1)) cubic-bezier(.2,.8,.2,1)}
+body.ovl .m b{color:var(--c2);margin-right:4px}body.ovl .e{font-size:.8em;color:#c4c8d4;padding:4px 12px}
+body.ovl .g{background:linear-gradient(120deg,color-mix(in srgb,var(--c1) 40%,#0e0f14),color-mix(in srgb,var(--c2) 22%,#0e0f14));border:1px solid color-mix(in srgb,var(--c2) 45%,transparent);border-left-width:1px;border-radius:16px;padding:9px 14px;box-shadow:0 10px 26px -10px #000;animation:ent calc(.55s/var(--v,1)) cubic-bezier(.2,.8,.2,1)}
+body.ovl .g{align-self:flex-start;max-width:100%;margin:0}body.ovl .g b{color:#fff}
+@keyframes ent{from{opacity:0;transform:translateY(14px) scale(.97)}}
+</style>
+</head>
+<body>
+<div id="bar">
+  <button data-k="chat" class="on">Chat</button>
+  <button data-k="gift" class="on">🎁</button>
+  <button data-k="follow" class="on">➕</button>
+  <button data-k="join" class="on">👋</button>
+  <span class="sp"></span>
+  <button id="menos">A−</button><button id="mais">A+</button>
+</div>
+<div id="aviso"></div>
+<div id="feed"></div>
+<button id="novos">↓ novas mensagens</button>
+
+<script>
+const $ = s => document.querySelector(s);
+const p = new URLSearchParams(location.search);
+const T = p.get('t') || '';              // token do overlay (OBS / Prism)
+const MODO = p.get('modo') || 'tudo';    // tudo | chat | presentes
+const OVL = !!T && p.get('fundo') !== '1';
+if (OVL) document.body.classList.add('ovl');
+const hx = (k, d) => /^[0-9a-f]{3,8}$/i.test(p.get(k) || '') ? '#' + p.get(k) : d;   // ?cor= ?destaque= ?vel=
+document.body.style.setProperty('--c1', hx('cor', '#fe2c55')); document.body.style.setProperty('--c2', hx('destaque', '#25f4ee'));
+document.body.style.setProperty('--v', Math.min(3, Math.max(.3, parseFloat(p.get('vel')) || 1)));
+if (T || MODO !== 'tudo') $('#bar').classList.add('hide');
+
+const feed = $('#feed');
+let todos = [], desde = 0;
+const show = {chat: true, gift: true, follow: true, join: true};
+function lsGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
+
+try { Object.assign(show, JSON.parse(lsGet('chat_show') || '{}')); } catch {}
+let fs = parseInt(p.get('fs') || lsGet('chat_fs') || '16', 10);
+function aplicarFonte() { document.documentElement.style.fontSize = fs + 'px'; lsSet('chat_fs', fs); }
+aplicarFonte();
+
+function permitido(t) {
+  if (MODO === 'chat') return t === 'chat';
+  if (MODO === 'presentes') return t === 'gift';
+  return show[t];
+}
+
+function criar(e) {
+  const d = document.createElement('div');
+  if (e.t === 'chat') {
+    d.className = 'm';
+    const b = document.createElement('b'); b.textContent = e.nome;
+    d.append(b, ' ' + e.txt);
+  } else if (e.t === 'gift') {
+    d.className = 'g';
+    const b = document.createElement('b'); b.textContent = e.nome;
+    d.append('🎁 ', b, ' enviou ' + (e.qtd > 1 ? e.qtd + 'x ' : '') + e.txt);
+  } else {
+    d.className = 'e';
+    d.textContent = (e.t === 'follow' ? '➕ ' + e.nome + ' começou a seguir' : '👋 ' + e.nome + ' entrou');
+  }
+  return d;
+}
+
+function noFim() { return feed.scrollHeight - feed.scrollTop - feed.clientHeight < 60; }
+function descer() { feed.scrollTop = feed.scrollHeight; $('#novos').style.display = 'none'; }
+
+function adicionar(evs) {
+  const colar = noFim();
+  let novos = 0;
+  for (const e of evs) {
+    todos.push(e);
+    if (!permitido(e.t)) continue;
+    feed.appendChild(criar(e));
+    novos++;
+  }
+  if (todos.length > 300) todos = todos.slice(-300);
+  while (feed.children.length > (OVL ? 30 : 150)) feed.removeChild(feed.firstChild);
+  if (!novos) return;
+  if (colar) descer(); else $('#novos').style.display = 'block';
+}
+
+function redesenhar() {
+  feed.textContent = '';
+  for (const e of todos.slice(-150)) if (permitido(e.t)) feed.appendChild(criar(e));
+  descer();
+}
+
+async function tick() {
+  if (document.hidden) return;
+  try {
+    const r = await fetch('/api/eventos?desde=' + desde + (T ? '&t=' + encodeURIComponent(T) : ''), {cache: 'no-store'});
+    if (r.status === 401) { $('#aviso').textContent = 'Entre na sua conta na página inicial e volte aqui.'; return; }
+    if (!r.ok) { $('#aviso').textContent = 'Link inválido ou servidor indisponível.'; return; }
+    $('#aviso').textContent = '';
+    const d = await r.json();
+    if (d.ultimo < desde) { desde = 0; todos = []; feed.textContent = ''; return; }  // servidor reiniciou
+    if (d.eventos.length) adicionar(d.eventos);
+    desde = d.ultimo;
+  } catch { /* tenta de novo no próximo ciclo */ }
+}
+
+document.querySelectorAll('#bar [data-k]').forEach(b => {
+  b.classList.toggle('on', !!show[b.dataset.k]);
+  b.onclick = () => {
+    show[b.dataset.k] = !show[b.dataset.k];
+    b.classList.toggle('on', show[b.dataset.k]);
+    lsSet('chat_show', JSON.stringify(show));
+    redesenhar();
+  };
+});
+$('#mais').onclick = () => { fs = Math.min(32, fs + 2); aplicarFonte(); };
+$('#menos').onclick = () => { fs = Math.max(11, fs - 2); aplicarFonte(); };
+$('#novos').onclick = descer;
+feed.addEventListener('scroll', () => { if (noFim()) $('#novos').style.display = 'none'; });
+
+setInterval(tick, 1200);
+tick();
+</script>
+</body>
+</html>
+
