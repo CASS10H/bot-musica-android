@@ -18,11 +18,9 @@ jobs:
     timeout-minutes: 45
 
     steps:
-      # Baixar o projeto
       - name: Checkout
         uses: actions/checkout@v7
 
-      # Configurar Java
       - name: Set up JDK 17
         uses: actions/setup-java@v6
         with:
@@ -30,26 +28,22 @@ jobs:
           java-version: '17'
           cache: gradle
 
-      # Configurar Python
       - name: Set up Python 3.13
         uses: actions/setup-python@v7
         with:
           python-version: '3.13'
 
-      # Instalar Android SDK
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
         with:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
 
-      # Verificar ambiente
       - name: Check environment
         run: |
           java -version
           python --version
           sdkmanager --version
 
-      # Instalar Gradle 8.11.1
       - name: Install Gradle
         run: |
           curl -L --fail --retry 3 \
@@ -60,23 +54,41 @@ jobs:
 
           "$RUNNER_TEMP/gradle-8.11.1/bin/gradle" --version
 
-      # Compilar APK
       - name: Build Debug APK
+        shell: bash
         run: |
+          set +e
+
           "$RUNNER_TEMP/gradle-8.11.1/bin/gradle" \
             assembleDebug \
             --stacktrace \
-            --no-daemon
+            --info \
+            --no-daemon 2>&1 | tee build-log.txt
 
-      # Verificar APK
+          BUILD_STATUS=${PIPESTATUS[0]}
+
+          echo "Resultado da compilação: $BUILD_STATUS"
+
+          exit $BUILD_STATUS
+
+      - name: Upload Build Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: build-log.txt
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Verify APK
+        if: success()
         run: |
           ls -lh app/build/outputs/apk/debug/
           test -f app/build/outputs/apk/debug/app-debug.apk
 
-      # Enviar APK como artefato
       - name: Upload APK
-        uses: actions/upload-artifact@v7
+        if: success()
+        uses: actions/upload-artifact@v4
         with:
           name: bot-musica-debug
           path: app/build/outputs/apk/debug/app-debug.apk
